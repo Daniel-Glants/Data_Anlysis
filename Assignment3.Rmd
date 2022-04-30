@@ -1,0 +1,218 @@
+---
+title: "Data Science - Assignment #3"
+author: "Daniel Glants I.D:203267182 / Omri Ben Menahem I.D:204048771"
+date: 
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(magrittr)
+library(dplyr)
+library(MASS)
+library(e1071)
+library(ggplot2)
+library(data.table)
+library(lattice)
+library(corrplot)
+library(gridExtra)
+library(randomForest)
+
+```
+
+## Question 1
+
+### Part a:
+
+```{r Part_1.a}
+data <-  read.csv("C:/Users/Daniel/Desktop/BGU/Year 4/Semester B/Data
+                  Science/HW/Assignment3/train.csv")%>%as.data.table()
+# data <-  read.csv("C:/Users/glantsd/Desktop/Daniel/BGU/DSC/Assignment3/train.csv")%>%as.data.table()
+d_clean <- data%>%select_if(~ !any(is.na(.)))
+
+```
+
+### Part b:
+
+```{r Part_1.b}
+library(caret)
+good_col <- setdiff(c(1:ncol(d_clean)),nearZeroVar(d_clean))%>%as.numeric()
+d_clean <- d_clean[,good_col,with = FALSE]
+```
+
+### Part c:
+```{r Part_1.c}
+n <- nrow(d_clean)
+train.prop <- 0.7
+set.seed(1)
+train.ind <- sample(x = c(TRUE,FALSE), 
+                    size = n, 
+                    prob = c(train.prop,1-train.prop), 
+                    replace=TRUE)
+d_train1 <- d_clean[train.ind,]
+d_valitaion1 <- d_clean[!train.ind,]
+```
+
+
+### Part d:
+
+First we will make a corralation analysis between th numeric features of the data
+```{r part_1.d}
+
+nums <- sapply(d_train1, is.numeric)%>%as.vector()
+cor_data<-d_train1[,..nums]
+cor_data <- cor_data[,-c(1)]
+cor_data <-na.omit(cor_data)
+
+M <- cor(cor_data)
+corrplot(M, method = "circle", type="lower")
+```
+
+We can see that we've got some intersting corralations between some varianble: SalePrice~(OverAllQual,GrLiveArea,GarageArea) lets plot them individualy
+
+```{r}
+pl1 <- ggplot(d_train1,aes(x=OverallQual, y=SalePrice)) + geom_boxplot(aes(group=OverallQual))
+
+pl2 <- ggplot(d_train1,aes(x=GrLivArea, y=SalePrice)) + geom_point(aes(color = SalePrice))
+
+pl3 <- ggplot(d_train1,aes(x=GarageArea, y=SalePrice)) + geom_point(aes(color = SalePrice))
+
+lay <- rbind(c(2,2,3,3),
+             c(2,2,3,3),
+             c(2,2,3,3),
+             c(1,1,1,1),
+             c(1,1,1,1),
+             c(1,1,1,1))
+
+grid.arrange(pl1,pl2,pl3,layout_matrix = lay)
+
+```
+
+we can see that the sale price of the houses is linearly dependent on all of those three variables
+
+### Part e:
+
+
+```{r}
+lm1 <- lm(data=d_train1, SalePrice~OverallQual+GrLivArea+BedroomAbvGr+TotalBsmtSF+Fireplaces+OverallQual*Fireplaces)
+```
+
+### Part f:
+
+```{r}
+
+res <- RMSE(pred = predict(lm1),obs = d_train1$SalePrice)
+paste("RMSE of Training Set:",res)
+```
+
+### Part g:
+
+```{r}
+res <- RMSE(pred=predict(lm1, newdata=d_valitaion1),obs=d_valitaion1$SalePrice)
+
+paste("RMSE of Validation Set:",res)
+```
+
+The RMSE on the validation set is different because we've predicted using a new data set, that wasn't part of the training phase.
+
+
+### Part h:
+```{r}
+n <- nrow(d_clean)
+train.prop <- 0.7
+set.seed(2)
+train.ind <- sample(x = c(TRUE,FALSE), 
+                    size = n, 
+                    prob = c(train.prop,1-train.prop), 
+                    replace=TRUE)
+d_train2 <- d_clean[train.ind,]
+d_valitaion2 <- d_clean[!train.ind,]
+
+stp_m<- step(lm(SalePrice~.,data = d_train2),trace = 0)
+
+res1 <- RMSE(pred = predict(stp_m),obs = d_train2$SalePrice)
+paste("RMSE of Training Set:",res1)
+
+
+res2 <- RMSE(pred=predict(stp_m, newdata=d_valitaion2),obs=d_valitaion2$SalePrice)
+paste("RMSE of Validation Set:",res2)
+
+```
+Explanation:
+
+We can see that test errors are larger then the train errors, that mean that we've achieved "Over Fitting", that means that our algorithm learned the train set "Too Well" so much that his predictions fail to fit the test data reliably.
+
+Contrary to "regsubsets", The Step-wise regression is a greedy algorithm. When we do "regsubsets" the algorithm goes through every possible combination of features to ensure the optimal result for the model. on the other side, the "Step-wise" regression only goes back/forwards and adds or drops features to check the model. As a result it might never return the optimal model. When it comes to big data it might be problematic dew too large amounts of features that can take along time for a "Step-wise" regression to go through all of them. with a big chance of dropping impotent features.
+
+## Question 3
+
+### Part a + b:
+
+```{r}
+MSE <- function(x) x^2 %>% mean 
+
+diamonds <- data(diamonds)
+summary(data(diamonds))
+
+diamonds <- as.data.table(diamonds)
+View(diamonds)
+
+sample_dt <- diamonds[sample(1:nrow(diamonds),5000,replace = FALSE),]
+
+sample_dt$cut <- sample_dt$cut%>%as.numeric()
+sample_dt$color <- sample_dt$color%>%as.numeric()
+sample_dt$clarity <- sample_dt$clarity%>%as.numeric()
+
+folds <- 10
+fold.assignment <- sample(1:folds, nrow(sample_dt), replace = TRUE)
+errors1 <- NULL
+
+for (k in 1:folds){
+  sample_dt.cross.train1 <- sample_dt[fold.assignment!=k,] # train subset
+  sample_dt.cross.test1 <-  sample_dt[fold.assignment==k,] # test subset
+  m_rf <- randomForest(price~.,data=sample_dt.cross.train1,ntree = 200,
+                                        mtry =sqrt(ncol(sample_dt.cross.train1))) # train subset
+  pr_rf1 <- predict(m_rf, newdata = sample_dt.cross.test1)
+  .errors <-  pr_rf1-sample_dt.cross.test1$price # save prediction errors in the fold
+  errors1 <- c(errors1, .errors) # aggregate error over folds.
+  
+}
+
+# Cross validated prediction error:
+paste("RMSE: ",MSE(errors1)%>%sqrt())
+
+```
+
+### Part c:
+```{r}
+
+folds <- 10
+fold.assignment <- sample(1:folds, nrow(sample_dt), replace = TRUE)
+errors2 <- NULL
+
+for (k in 1:folds){
+  sample_dt.cross.train2 <- sample_dt[fold.assignment!=k,] # train subset
+  sample_dt.cross.test2 <-  sample_dt[fold.assignment==k,] # test subset
+  m_rf <- randomForest(price~.,data=sample_dt.cross.train1,ntree = 100,
+                                        mtry =0.5*sqrt(ncol(sample_dt.cross.train2))) # train subset
+  pr_rf2 <- predict(m_rf, newdata = sample_dt.cross.test2)
+  .errors <-  pr_rf2-sample_dt.cross.test2$price # save prediction errors in the fold
+  errors2 <- c(errors2, .errors) # aggregate error over folds.
+  
+  
+}
+
+paste("RMSE: ",MSE(errors2)%>%sqrt())
+
+```
+
+### Part d:
+
+"mtry" is a subset of the data's features we use in the random Forrest algorithm, we use only a subset of the futures to decrease the correlation between the decision Trees.
+"ntrees" is the amount of decision trees we set to make during the computational process, their amount shouldn't be to small because we would want every input row to get predicted at least a few times.
+
+### Part e:
+
+One advantage of “Leave-One-out CV” is that this method is very precise, We get a very good estimator for the Empirical Risk parameter that is less biased("Omed Mute") from the real risk parameter in the population, that because every time the training set is made from all the data except the validatore, and of course our training set is approximately identical to all of the data.
+
+One disadvantage is that if we have a large amount of observations, it may result in a computational problem because it make the algorithm to use every single observation as validators which can consume a lot of time and computational resources
